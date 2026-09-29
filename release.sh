@@ -13,6 +13,7 @@ LINUX_ARM64="${DIST_DIR}/losdias-verify-linux-arm64"
 WINDOWS_AMD64="${DIST_DIR}/losdias-verify-windows-amd64.exe"
 
 NOTES=""
+GH_REPO="AENGIX/losdias-verifier"
 
 die() {
   echo "error: $*" >&2
@@ -99,12 +100,16 @@ prompt_notes() {
 }
 
 require_release_commit() {
-  local origin head upstream
-  git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-    || die "release must run from the losdias-verifier git checkout"
+  local toplevel origin head upstream
+  toplevel="$(git -C "$ROOT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  # This tree also lives inside the site repo. A nested checkout must not
+  # inherit that origin; the release always targets AENGIX/losdias-verifier.
+  if [[ "$toplevel" != "$ROOT_DIR" ]]; then
+    return 0
+  fi
   origin="$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || true)"
   [[ "$origin" == *losdias-verifier* ]] \
-    || die "origin must be git@github.com:AENGIX/losdias-verifier.git"
+    || die "origin must be the AENGIX/losdias-verifier repository"
   [[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] \
     || die "working tree is not clean"
   git -C "$ROOT_DIR" fetch origin
@@ -136,11 +141,13 @@ create_github_release() {
   require_cmd gh
   gh auth status >/dev/null 2>&1 || die "gh is not authenticated (run: gh auth login)"
 
-  if gh release view "$tag" >/dev/null 2>&1; then
+  if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
     die "release already exists for tag: $tag"
   fi
 
   gh release create "$tag" \
+    --repo "$GH_REPO" \
+    --target main \
     --title "$tag" \
     --notes "$NOTES" \
     "$DARWIN_ARM64" \
@@ -151,7 +158,7 @@ create_github_release() {
 
   echo
   echo "Release created:"
-  gh release view "$tag" --json url -q .url
+  gh release view "$tag" --repo "$GH_REPO" --json url -q .url
 }
 
 main() {
